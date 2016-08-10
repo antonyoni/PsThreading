@@ -11,13 +11,13 @@
 Function New-Thread {
     <#
         .SYNOPSIS
-        
+        Function to scaffold a new thread to be used by Invoke-ThreadPool.
 
         .EXAMPLE
-        
+        New-Thread -ScriptBlock $ThreadScriptBlock -Number $NumberOfThreads
 
         .NOTES
-
+        For usage excamples see the PsThreading variable.
     #>
 
     [CmdletBinding()]
@@ -80,4 +80,4 @@ Function New-Thread {
 
 }
 
-#Export-ModuleMember -Function 'New-Thread'
+Export-ModuleMember -Function 'New-Thread'

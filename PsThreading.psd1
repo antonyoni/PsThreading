@@ -78,6 +78,7 @@ PowerShellVersion = '4.0'
 # Functions to export from this module
 FunctionsToExport = @(
     'Invoke-ThreadPool'
+    'New-Thread'
     'Split-FileToStream'
 )
 

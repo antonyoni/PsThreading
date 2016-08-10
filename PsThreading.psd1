@@ -77,6 +77,7 @@ PowerShellVersion = '4.0'
 
 # Functions to export from this module
 FunctionsToExport = @(
+    'Split-FileToStream'
 )
 
 # Cmdlets to export from this module

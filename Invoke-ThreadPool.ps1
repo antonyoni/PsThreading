@@ -11,15 +11,23 @@
 Function Invoke-ThreadPool {
     <#
         .SYNOPSIS
-        
+        Create a thread pool and run a number of concurrent threads.
+
+        .DESCRIPTION
+        To create threads to run use the New-Thread function. Patterns and samples are available
+        in the PsThreading variable.
 
         .EXAMPLE
-        
+        Invoke-ThreadPool -Thread $Producer, $Consumer -Parameters @{ WorkQueue = $q l $ResultSet = $rs }
+
+        .EXAMPLE
+        New-Thread $ScriptBlock -Number $NumCPUs | Invoke-ThreadPool -Parameters @{ WorkQueue = $q }
 
         .NOTES
-        The consumers are the first ones to start. The producers are 
-        Basic script block should look like this:
-
+        The maximum number of concurrent threads is, if not explicitly, the number of logical CPUs.
+        However, the number of threads spawned is controlled by the 'Number' property of each
+        'PsThreading.Thread' object. By default that number is 1, so set it to num logical CPUs or
+        greater to make full use of the threadpool.
     #>
 
     [CmdletBinding()]
@@ -48,20 +56,21 @@ Function Invoke-ThreadPool {
         [Parameter(Mandatory=$false)]
         [String[]]$PathsToImport,
 
-        # Garbage collector cleanup interval in minutes.
+        # Garbage collector cleanup interval in minutes. Default is 2.
         [Parameter(Mandatory=$false)]
         [int]$CleanupInterval = 2,
 
-        # Polling interval to check for thread completion. For longer running tasks, set to higher number. Default is 200ms.
+        # Polling interval to check for thread completion. For longer running tasks, set to higher number. Default is 500ms.
         [Parameter(Mandatory=$false)]
-        [int]$PollingInterval = 200
+        [int]$PollingInterval = 500
     )
 
     Begin {
+
         if (!$MaxThreads) {
-            $MaxThreads = Get-WmiObject Win32_Processor `
-                | Measure-Object -Property NumberOfLogicalProcessors -Sum `
-                | select -ExpandProperty Sum
+            $MaxThreads = Get-WmiObject Win32_Processor |
+                Measure-Object -Property NumberOfLogicalProcessors -Sum |
+                select -ExpandProperty Sum
         }
 
         if ($Parameters.ContainsKey('ThreadId')) {
@@ -87,6 +96,7 @@ Function Invoke-ThreadPool {
         $pool.Open()
 
         $threads = @()
+
     }
 
     Process {
@@ -95,7 +105,8 @@ Function Invoke-ThreadPool {
         foreach ($type in $Thread) {
 
             if (($type | Get-Member).TypeName -ne 'PsThreading.Thread') {
-                Write-Error "The threads needs to be of type 'PsThreading.Thread'. Use the New-Thread function to create one."
+                Write-Error ("The threads needs to be of type 'PsThreading.Thread'. " +
+                    "Use the New-Thread function to create one.")
                 continue
             }
 
@@ -122,8 +133,6 @@ Function Invoke-ThreadPool {
     }
 
     End {
-        
-        Write-Verbose "Start your engines..."
 
         $threads | Sort-Object -Property @{ Expression="Weight"; Descending=$true },
             @{ Expression="Id"; Descending=$false } | % {
@@ -131,10 +140,11 @@ Function Invoke-ThreadPool {
             $_.Handle = $_.Thread.BeginInvoke()
         }
 
-        Write-Verbose "Waiting for the threads to complete..."
+        Write-Verbose "Waiting (polling every ${PollingInterval}ms) for the threads to complete..."
 
         while ($threads.Handle -ne $null) {
-
+            
+            # TODO: Switch to waiting for handles rather polling.
             #$tId = [System.Threading.WaitHandle]::WaitAny($threads.Handle.AsyncWaitHandle)
 
             for ($tId = 0; $tId -lt $threads.Count; $tId++) {
@@ -144,17 +154,9 @@ Function Invoke-ThreadPool {
                 if ($t.Handle.IsCompleted) {
 
                     Write-Verbose "$($t.Type) $($t.Id) is done."
-                    if ($PSBoundParameters['Verbose'].IsPresent `
-                        -and $t.Thread.Streams.Verbose) {
-                        Write-Verbose "$($t.Thread.Streams.Verbose.ReadAll())"
-                    }
 
                     if ($t.Thread.HadErrors) {
                         Write-Error "Thread $($t.Id)`n$($t.Thread.Streams.Error.ReadAll())`n"
-                    }
-
-                    if ($t.Thread.Streams) {
-
                     }
 
                     # get the results
@@ -165,44 +167,17 @@ Function Invoke-ThreadPool {
                     $t.Handle = $null
 
                 }
+
             }
 
             Start-Sleep -Milliseconds $PollingInterval
 
         }
 
-        # Clean up
         $pool.Close()
 
-        #Write-Output $Parameters
-
     }
 
 }
 
-#Export-ModuleMember -Function 'Invoke-ThreadPool'
-
-$NumberOfThreads = Get-WmiObject Win32_Processor `
-    | Measure-Object -Property NumberOfLogicalProcessors -Sum `
-    | select -ExpandProperty Sum
-
-$WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[string]
-
-1..10000 | % { $WorkQueue.Enqueue("Item number $_") }
-
-$Parameters = @{
-    WorkQueue = $WorkQueue
-}
-
-$ThreadScriptBlock = {
-    Param($ThreadId, $WorkQueue)
-    $item = ""
-    while ($WorkQueue.TryDequeue([ref]$item)) {
-        Write-Output "$ThreadId -> $item"
-    }
-}
-
-$Thread= New-Thread -ScriptBlock $ThreadScriptBlock -Number $NumberOfThreads
-
-$result = Invoke-ThreadPool -Thread $Thread -Parameters $Parameters -Verbose
-$result | % { [regex]::Matches($_, ".-\d{2}").Groups[0].Value } | group
+Export-ModuleMember -Function 'Invoke-ThreadPool'

@@ -9,35 +9,8 @@
 ################################################################################
 
 $PsThreading = [pscustomobject]@{
-    Parameter = [pscustomobject]@{
-        WorkerOnly = @{
-            WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
-        }
-        ProducerConsumer = @{
-            WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
-            Settings  = (& {
-                $sets = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[string,object]'
-                $sets['NumberToProduce'] = 10000
-                $sets['ProducerIsDone']  = $false
-                return $sets
-            })
-            ResultSet = New-Object System.Collections.Concurrent.ConcurrentBag[object]
-        } 
-        ProducerWorkerWriter = @{
-            WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
-            Settings  = (& {
-                $sets = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[string,object]'
-                $sets['OutPath']         = (Join-Path (Get-Location) out.txt)
-                $sets['NumberToProduce'] = 10000
-                $sets['SleepTime']       = 10
-                $sets['ProducerIsDone']  = $false
-                $sets['WorkersAreDone']  = $false
-                return $sets
-            })
-            ResultSet = New-Object System.Collections.Concurrent.ConcurrentBag[object]
-        }
-    } 
-    Thread  = [pscustomobject]@{
+    Parameter = [pscustomobject]@{}
+    Thread = [pscustomobject]@{
         Consumer = {
             Param($ThreadId, $WorkQueue, $Settings, $ResultSet)
             $item = ""
@@ -86,15 +59,57 @@ $PsThreading = [pscustomobject]@{
 
 ################################################################################
 
+$workerOnly = {
+    return @{
+        WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
+    }
+}
+
+Add-Member -InputObject $PsThreading.Parameter `
+           -MemberType ScriptProperty `
+           -Name WorkerOnly `
+           -Value $workerOnly
+
+$producerConsumer = {
+    $sets = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[string,object]'
+    $sets['NumberToProduce'] = 10000
+    $sets['ProducerIsDone']  = $false
+    return @{
+        ResultSet = New-Object System.Collections.Concurrent.ConcurrentBag[object]
+        Settings  = $sets
+        WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
+    }
+}
+
+Add-Member -InputObject $PsThreading.Parameter `
+           -MemberType ScriptProperty `
+           -Name ProducerConsumer `
+           -Value $producerConsumer
+
+$producerWorkerWriter = {
+    $sets = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[string,object]'
+    $sets['OutPath']         = (Join-Path (Get-Location) out.txt)
+    $sets['NumberToProduce'] = 10000
+    $sets['SleepTime']       = 10
+    $sets['ProducerIsDone']  = $false
+    $sets['WorkersAreDone']  = $false
+    return @{
+        ResultSet = New-Object System.Collections.Concurrent.ConcurrentBag[object]
+        Settings  = $sets
+        WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
+    }
+}
+
+Add-Member -InputObject $PsThreading.Parameter `
+           -MemberType ScriptProperty `
+           -Name ProducerWorkerWriter `
+           -Value $producerWorkerWriter
+
+################################################################################
+
 $numCores = {
     return Get-WmiObject Win32_Processor |
         Measure-Object -Property NumberofCores -Sum |
-        select -ExpandProperty Sum
-}
-
-$numCPUs = {
-    return Get-WmiObject Win32_Processor |
-        Measure-Object -Property NumberOfLogicalProcessors -Sum |
         select -ExpandProperty Sum
 }
 
@@ -102,6 +117,12 @@ Add-Member -InputObject $PsThreading.Utility `
            -MemberType ScriptProperty `
            -Name CpuCores `
            -Value $numCores
+
+$numCPUs = {
+    return Get-WmiObject Win32_Processor |
+        Measure-Object -Property NumberOfLogicalProcessors -Sum |
+        select -ExpandProperty Sum
+}
 
 Add-Member -InputObject $PsThreading.Utility `
            -MemberType ScriptProperty `

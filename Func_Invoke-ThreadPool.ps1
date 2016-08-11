@@ -119,8 +119,9 @@ Function Invoke-ThreadPool {
                 $ps = [powershell]::Create()
                 $ps.RunspacePool = $pool
                 $ps.AddScript($t.ScriptBlock) | Out-Null
-                $Parameters.ThreadId = $t.Id
+                $Parameters['ThreadId'] = $t.Id
                 $ps.AddParameters($Parameters) | Out-Null
+                $Parameters.Remove('ThreadId')
 
                 $t.Thread = $ps
 

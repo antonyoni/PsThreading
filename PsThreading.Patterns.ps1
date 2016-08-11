@@ -8,129 +8,151 @@
 # https://creativecommons.org/licenses/by-sa/4.0/
 ################################################################################
 
-# Multiple consumers with a work queue that's created before spawning pool
-
-$NumberOfThreads = Get-WmiObject Win32_Processor |
-    Measure-Object -Property NumberOfLogicalProcessors -Sum |
-    select -ExpandProperty Sum
-
-$WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[string]
-
-1..10000 | % { $WorkQueue.Enqueue("Item number $_") }
-
-$Parameters = @{
-    WorkQueue = $WorkQueue
-}
-
-$ThreadScriptBlock = {
-    Param($ThreadId, $WorkQueue)
-    $item = ""
-    while ($WorkQueue.TryDequeue([ref]$item)) {
-        Write-Output "$ThreadId -> $item"
+$PsThreading = [pscustomobject]@{
+    DataStructure = [pscustomobject]@{
+        Dictionary = [System.Collections.Concurrent.ConcurrentDictionary`2[object,object]]
+        Queue      = [System.Collections.Concurrent.ConcurrentQueue[object]]
+        Stack      = [System.Collections.Concurrent.ConcurrentStack[object]]
+        Bag        = [System.Collections.Concurrent.ConcurrentBag[object]]
     }
+    Pattern = [pscustomobject]@{
+        WorkerOnly           = $null
+        ProducerConsumer     = $null
+        ProducerWorkerWriter = $null
+    }
+    Thread  = [pscustomobject]@{
+        Consumer = {
+            Param($ThreadId, $WorkQueue, $Settings, $ResultSet)
+            $item = New-Object psobject
+            while (!$Settings['IsDone'] -or $WorkQueue.Count -gt 0) {
+                if ($WorkQueue.TryDequeue([ref]$item)) {
+                    #process item
+                    $ResultSet.Add("Thread $ThreadId has processed '$item'")
+                } else {
+                    Start-Sleep -Milliseconds 10
+                }
+            }
+        }
+        Producer = {
+            Param($ThreadId, $WorkQueue, $Settings)
+            1..$Settings['Produce'] | % {
+                $WorkQueue.Enqueue("item number $_")
+            }
+            $Settings['IsDone'] = $true
+        }
+        Worker = {
+            Param($ThreadId, $WorkQueue)
+            $item = ""
+            while ($WorkQueue.TryDequeue([ref]$item)) {
+                # process item here
+                Write-Output "$ThreadId -> $item"
+            }
+        }
+        Writer = {
+            Param($ThreadId, $Settings, $ResultSet)
+            $item = ""
+            while (!$Settings['IsDone'] -or $ResultSet.Count -gt 0) {
+                if ($ResultSet.TryTake([ref]$item)) {
+                    Write-Host $item
+                } else {
+                    Start-Sleep -Milliseconds $Settings['SleepTime']
+                }
+            }
+        }
+    }
+    Utility = [pscustomobject]@{}
 }
 
-$Thread= New-Thread -ScriptBlock $ThreadScriptBlock -Number $NumberOfThreads
+$numCores = {
+    return Get-WmiObject Win32_Processor |
+        Measure-Object -Property NumberofCores -Sum |
+        select -ExpandProperty Sum
+}
 
-$result = Invoke-ThreadPool -Thread $Thread -Parameters $Parameters -Verbose
-$result | % { [regex]::Matches($_, ".-\d{2}").Groups[0].Value } | group
+$numCPUs = {
+    return Get-WmiObject Win32_Processor |
+        Measure-Object -Property NumberOfLogicalProcessors -Sum |
+        select -ExpandProperty Sum
+}
+
+Add-Member -InputObject $PsThreading.Utility `
+           -MemberType ScriptProperty `
+           -Name CpuCores `
+           -Value $numCores
+
+Add-Member -InputObject $PsThreading.Utility `
+           -MemberType ScriptProperty `
+           -Name LogicalCpus `
+           -Value $numCPUs
 
 ################################################################################
 
-# Producer - Consumer pattern with a work queue and result bag
-
-$NumCPUs = Get-WmiObject Win32_Processor |
-    Measure-Object -Property NumberOfLogicalProcessors -Sum |
-    select -ExpandProperty Sum
-
-$Results = New-Object System.Collections.Concurrent.ConcurrentBag[object]
-
-$Parameters = @{
-    WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
-    Settings  = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[object,Object]'
-    ResultSet = $Results
-}
-$Parameters.Settings['IsDone'] = $false
-$Parameters.Settings['Produce'] = 10000
-$Parameters.Settings['SleepTime'] = 10
-
-$ProducerThread = New-Thread -ScriptBlock {
-    Param($ThreadId, $WorkQueue, $Settings)
-    1..$Settings['Produce'] | % {
-        $WorkQueue.Enqueue("item number $_")
-    }
-    $Settings['IsDone'] = $true
-} -Type Producer -Weight 100
-
-$ConsumerThread = New-Thread {
-    Param($ThreadId, $WorkQueue, $Settings, $ResultSet)
-    $item = New-Object psobject
-    while (!$Settings['IsDone'] -or $WorkQueue.Count -gt 0) {
-        if ($WorkQueue.TryDequeue([ref]$item)) {
-            #process item
-            $ResultSet.Add("Thread $ThreadId has processed '$item'")
-        } else {
-            Start-Sleep -Milliseconds $Settings['SleepTime']
+$PsThreading.Pattern.WorkerOnly = [pscustomobject]@{
+    Thread = (New-Thread -ScriptBlock $PsThreading.Thread.Worker `
+                         -Number $PsThreading.Utility.LogicalCpus)
+    Parameters = @{
+        WorkQueue = & {
+             $q = New-Object $PsThreading.DataStructure.Queue
+             1..1000 | % { $q.Enqueue("item $_") }
+             return $q
         }
     }
-} -Type Consumer -Number ($NumCPUs - 1)
-
-Invoke-ThreadPool -Thread $ProducerThread, $ConsumerThread -Parameters $Parameters -Verbose
-$Results | % { [regex]::Matches($_, "(c|p)-\d{2}").Groups[0].Value } | group
+    MaxThreads = $PsThreading.Utility.LogicalCpus
+}
 
 ################################################################################
 
-# Producer - Worker - Writer
-
-$NumCPUs = Get-WmiObject Win32_Processor |
-    Measure-Object -Property NumberOfLogicalProcessors -Sum |
-    select -ExpandProperty Sum
-
-$Results = New-Object System.Collections.Concurrent.ConcurrentBag[object]
-
-$Parameters = @{
-    WorkQueue = New-Object System.Collections.Concurrent.ConcurrentQueue[object]
-    Settings  = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[object,Object]'
-    ResultSet = $Results
+$PsThreading.Pattern.ProducerConsumer = [pscustomobject]@{
+    Thread = @(
+        New-Thread -ScriptBlock $PsThreading.Thread.Producer `
+                   -Type "Producer" `
+                   -Weight 100
+        New-Thread -ScriptBlock $PsThreading.Thread.Consumer `
+                   -Type "Consumer" `
+                   -Number ($PsThreading.Utility.LogicalCpus - 1)
+    )
+    Parameters = @{
+        Settings  = & {
+            $s= New-Object $PsThreading.DataStructure.Dictionary
+            $s['IsDone']    = $false
+            $s['Produce']   = 10000
+            $s['SleepTime'] = 10
+            return $s
+        }
+        WorkQueue = New-Object $PsThreading.DataStructure.Queue
+        ResultSet = New-Object $PsThreading.DataStructure.Bag
+    }
+    MaxThreads = $PsThreading.Utility.LogicalCpus
 }
-$Parameters.Settings['IsDone'] = $false
-$Parameters.Settings['Produce'] = 10000
-$Parameters.Settings['SleepTime'] = 10
-
-$ProducerThread = New-Thread -ScriptBlock {
-    Param($ThreadId, $WorkQueue, $Settings)
-    1..$Settings['Produce'] | % {
-        $WorkQueue.Enqueue("item number $_")
-    }
-    $Settings['IsDone'] = $true
-} -Type Producer -Weight 100
-
-$WorkerThread = New-Thread {
-    Param($ThreadId, $WorkQueue, $Settings, $ResultSet)
-    $item = ""
-    while (!$Settings['IsDone'] -or $WorkQueue.Count -gt 0) {
-        if ($WorkQueue.TryDequeue([ref]$item)) {
-            #process item
-            $ResultSet.Add("Thread $ThreadId has processed '$item'")
-        } else {
-            Start-Sleep -Milliseconds $Settings['SleepTime']
-        }
-    }
-} -Type Worker -Number ($NumCPUs - 2) -Weight 10
-
-$ProgressThread = New-Thread {
-    Param($ThreadId, $Settings, $ResultSet)
-    $item = ""
-    while (!$Settings['IsDone'] -or $ResultSet.Count -gt 0) {
-        if ($ResultSet.TryTake([ref]$item)) {
-            Write-Host $item
-        } else {
-            Start-Sleep -Milliseconds $Settings['SleepTime']
-        }
-    }
-} -Type Writer
-
-Invoke-ThreadPool -Thread $ProducerThread, $ConsumerThread, $ProgressThread `
-                  -Parameters $Parameters -Verbose
 
 ################################################################################
+
+$PsThreading.Pattern.ProducerWorkerWriter = [pscustomobject]@{
+    Thread = @(
+        New-Thread -ScriptBlock $PsThreading.Thread.Producer `
+                   -Type "Producer" `
+                   -Weight 100
+        New-Thread -ScriptBlock $PsThreading.Thread.Consumer `
+                   -Type "Worker" `
+                   -Number ($PsThreading.Utility.LogicalCpus - 1) `
+                   -Weight 10
+        New-Thread -ScriptBlock $PsThreading.Thread.Writer `
+                   -Type "Writer"
+    )
+    Parameters = @{
+        Settings  = & {
+            $s= New-Object $PsThreading.DataStructure.Dictionary
+            $s['IsDone']    = $false
+            $s['Produce']   = 10000
+            $s['SleepTime'] = 10
+            return $s
+        }
+        WorkQueue = New-Object $PsThreading.DataStructure.Queue
+        ResultSet = New-Object $PsThreading.DataStructure.Bag
+    }
+    MaxThreads = $PsThreading.Utility.LogicalCpus
+}
+
+################################################################################
+
+Export-ModuleMember -Variable PsThreading

@@ -13,3 +13,5 @@ Get-ChildItem -Path $psScriptRoot `
     | % {
         . (Join-Path -Path $psScriptRoot -ChildPath $_)
     }
+
+. (Join-Path -Path $psScriptRoot -ChildPath PsThreading.*.ps1)

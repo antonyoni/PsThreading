@@ -86,7 +86,9 @@ FunctionsToExport = @(
 # CmdletsToExport = '*'
 
 # Variables to export from this module
-# VariablesToExport = @()
+VariablesToExport = @(
+    'PsThreading'
+)
 
 # Aliases to export from this module
 # AliasesToExport = @()

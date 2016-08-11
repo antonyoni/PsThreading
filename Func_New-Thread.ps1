@@ -17,7 +17,7 @@ Function New-Thread {
         New-Thread -ScriptBlock $ThreadScriptBlock -Number $NumberOfThreads
 
         .NOTES
-        For usage excamples see the PsThreading variable.
+        For usage examples see the PsThreading variable.
     #>
 
     [CmdletBinding()]

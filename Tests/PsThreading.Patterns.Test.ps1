@@ -10,9 +10,9 @@
 
 . .\setup-test.ps1
 
-Describe "`$PsThreading" {
+Describe "Patterns" {
 
-    It "WorkerOnly pattern works" {
+    It "WorkerOnly" {
         $produce = 10000
         $threads = $PsThreading.Utility.LogicalCpus
         $params  = $PsThreading.Parameter.WorkerOnly
@@ -22,6 +22,14 @@ Describe "`$PsThreading" {
         $results = Invoke-ThreadPool -Thread $thread -Parameters $params
         $groups = $results | % { [regex]::Matches($_,"w-\d{2}").Value } | group
         $results.Count -eq $produce -and $groups.Count -eq $threads | Should Be $true
+    }
+
+    It "Producer - Consumer" {
+        
+    }
+
+    It "Producer - Worker - Writer" {
+
     }
 
 }

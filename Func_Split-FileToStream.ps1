@@ -122,6 +122,7 @@ Function Split-FileToStream {
                 $mem.Seek(0, [System.IO.SeekOrigin]::Begin) | Out-Null
 
                 [pscustomobject]@{
+                    File   = $Path
                     Stream = $mem
                     Start  = $start
                     End    = $end

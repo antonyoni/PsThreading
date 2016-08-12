@@ -41,17 +41,20 @@ $PsThreading = [pscustomobject]@{
         Writer = {
             Param($ThreadId, $Settings, $ResultSet)
             $item = ""
-            $outFile = $Settings['OutputPath']
             $sleepTime = $Settings['SleepTime']
-            "$(Get-Date -Format "yyyyMMddHHmmss") -> Writer starting" | Out-File -FilePath $outFile
-            while (!$Settings['WorkersAreDone'] -or $ResultSet.Count -gt 0) {
+            $stream = [System.IO.File]::OpenWrite($Settings['OutputPath'])
+            $writer = New-Object System.IO.StreamWriter($stream)
+            $writer.WriteLine("$(Get-Date -Format "yyyyMMddHHmmss") -> Writer starting")
+            while ($Settings['WorkersRunning'] -gt 0 -or $ResultSet.Count -gt 0) {
                 if ($ResultSet.TryTake([ref]$item)) {
-                    $item | Out-File -FilePath $outFile -Append
+                    $writer.WriteLine($item)
                 } else {
                     Start-Sleep -Milliseconds $sleepTime
                 }
             }
-            "$(Get-Date -Format "yyyyMMddHHmmss") -> Writer id done."
+            $writer.WriteLine("$(Get-Date -Format "yyyyMMddHHmmss") -> Writer id done.")
+            $writer.Flush()
+            $stream.Close()
         }
     }
     Utility = [pscustomobject]@{}
@@ -88,11 +91,11 @@ Add-Member -InputObject $PsThreading.Parameter `
 
 $producerWorkerWriter = {
     $sets = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[string,object]'
-    $sets['OutPath']         = (Join-Path (Get-Location) out.txt)
+    $sets['OutputPath']      = (Join-Path (Get-Location) out.txt)
     $sets['NumberToProduce'] = 10000
     $sets['SleepTime']       = 10
     $sets['ProducerIsDone']  = $false
-    $sets['WorkersAreDone']  = $false
+    $sets['WorkersRunning']  = 0
     return @{
         ResultSet = New-Object System.Collections.Concurrent.ConcurrentBag[object]
         Settings  = $sets

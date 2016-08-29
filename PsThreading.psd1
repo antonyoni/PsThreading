@@ -114,7 +114,7 @@ PrivateData = @{
         LicenseUri = 'https://creativecommons.org/licenses/by-sa/4.0/'
 
         # A URL to the main website for this project.
-        ProjectUri = 'https://gitlab.com/antonyoni/PsThreading'
+        ProjectUri = 'https://github.com/antonyoni/PsThreading'
 
         # A URL to an icon representing this module.
         # IconUri = ''

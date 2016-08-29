@@ -29,13 +29,12 @@ $params = @{
     WorkQueue = $workQueue
 }
 
-Invoke-ThreadPool -Thread $worker `
-                  -Parameters $params
+Invoke-ThreadPool -Thread $worker -Parameters $params
 ```
 
 ### Helper functions
 
-There is a helper function Split-FileToStream which splits a file based on a delimiter, and creates n memory streams from it. By default, it will split the file into the number of logical CPUs.
+There is a helper function `Split-FileToStream` that creates *n* MemoryStreams from a file using the nearest delimiter. By default, it will split a file into the number of logical CPUs by finding the nearest new line.
 
 ```powershell
 $Path = '\path\to\large-file.csv'
@@ -53,7 +52,7 @@ $PsThreading.Utility.CpuCores     # Number of physical cores
 $PsThreading.Utility.LogicalCpus  # Number of logical CPUs
 ```
 
-and some sample parameter sets and thread templates for various threading patterns:
+and some sample parameter sets and thread script blocks for various threading patterns:
 
 ```powershell
 $PsThreading.Parameter.WorkerOnly
@@ -66,11 +65,11 @@ $PsThreading.Thread.Worker
 $PsThreading.Thread.Writer
 ```
 
-Have a look at the PsThreading.Patterns.ps1 and PsThreading.Patterns.Tests.ps1 files for some example implementation patterns.
+Have a look at the PsThreading.Patterns.ps1 and PsThreading.Patterns.Tests.ps1 files for some example implementations.
 
 ### Examples
 
-Producer - Consumer example where the producer uses the Split-FileToStream function to create file chunks for the consumer threads to then process.
+Producer - Consumer example where the producer uses the Split-FileToStream function to create file chunks for the consumer threads to process.
 
 ```powershell
 $FileToProcess   = '\path\to\large-file.csv'
@@ -80,7 +79,9 @@ $threads = $PsThreading.Utility.LogicalCpus
 $params  = $PsThreading.Parameter.ProducerConsumer
 
 $params.Settings['FileToProcess'] = $FileToProcess
-$params.Settings['NumberToProduce'] = $threads * 2
+$params.Settings['NumberToProduce'] = $threads
+
+$params.ResultSet = New-Object 'System.Collections.Concurrent.ConcurrentDictionary`2[string,int]'
 
 $producer = New-Thread -Type "Producer" -Weight 100 -ScriptBlock {
     Param($ThreadId, $Settings, $WorkQueue)
@@ -102,7 +103,7 @@ $consumer = New-Thread -Type "Consumer" -Number $threads -ScriptBlock {
             while (($line = $reader.ReadLine()) -ne $null) {
                 $count++
             }
-            $ResultSet.Add("Thread $ThreadId has processed $count lines.")
+            $ResultSet.AddOrUpdate($ThreadId, $count, { param($key, $val) $val + $count }) | Out-Null
         } else {
             Start-Sleep -Milliseconds 10
         }

@@ -22,7 +22,7 @@
 RootModule = 'PsThreading.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.1'
+ModuleVersion = '1.0'
 
 # ID used to uniquely identify this module
 GUID = '9f79c95d-1809-47ac-ae69-e6c2b102de84'
